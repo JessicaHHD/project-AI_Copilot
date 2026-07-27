@@ -1,0 +1,62 @@
+﻿新人价查价自动化拆分版说明
+
+一、脚本1：新人价后台查价自动上传并点击批量导出
+位置：
+C:\Users\hansiying.1\Documents\Codex\2026-07-27\new-chat\outputs\01_新人价后台查价自动上传发邮箱_20260727.py
+
+默认处理文件：
+D:\hansiying.1\Desktop\查价前sku\8月第一批查价前sku_PART*.xlsx
+
+脚本动作：
+1、打开新人价后台查价工具页面。
+2、进入查价工具/批量上传区域。
+3、逐个上传 PART 文件。
+4、点击开始查询。
+5、等待页面结果刷新，方便你检查上传和查询是否成功。
+6、点击批量导出，但不处理邮箱下载。
+7、写入日志：D:\hansiying.1\Desktop\查价前sku\后台查价自动上传日志.txt
+
+这个脚本只负责后台网页操作。点击批量导出后，后台把结果发到邮箱，脚本不进入 Outlook，也不下载邮件附件。
+
+建议先只验证一个文件：
+python "C:\Users\hansiying.1\Documents\Codex\2026-07-27\new-chat\outputs\01_新人价后台查价自动上传发邮箱_20260727.py" --only "8月第一批查价前sku_PART01.xlsx" --pause-after-each
+
+如果查询刷新较慢，可以加长等待时间，例如：
+python "C:\Users\hansiying.1\Documents\Codex\2026-07-27\new-chat\outputs\01_新人价后台查价自动上传发邮箱_20260727.py" --only "8月第一批查价前sku_PART01.xlsx" --wait-after-query 90 --pause-after-each
+
+二、脚本2：Outlook前端页面下载查价结果邮件附件
+位置：
+C:\Users\hansiying.1\Documents\Codex\2026-07-27\new-chat\outputs\02_Outlook查价结果邮件下载_20260727.py
+
+默认下载到：
+D:\hansiying.1\Desktop\查价前sku\查价结果导出
+
+脚本动作：
+1、打开 Outlook 网页邮箱。
+2、如未登录，需要你在浏览器里手动登录。
+3、默认搜索关键词：查价 新人价。
+4、逐个尝试打开搜索结果邮件。
+5、下载邮件里的 Excel/CSV/ZIP 附件。
+
+这个脚本只负责 Outlook 邮箱前端操作，不打开新人价后台网页。
+
+如果自动搜索不稳定，建议用手动模式：
+python "C:\Users\hansiying.1\Documents\Codex\2026-07-27\new-chat\outputs\02_Outlook查价结果邮件下载_20260727.py" --manual
+
+三、是否需要 Outlook 登录权限？
+不需要你把账号密码写进脚本。
+脚本是前端页面操作：会打开 Outlook 网页，你手动完成登录和验证码/MFA。
+登录状态会保存到本地缓存目录，后续通常不用重复登录。
+如果企业安全策略不允许自动化浏览器复用登录态，则每次运行可能都需要你手动登录。
+
+四、首次运行前安装依赖
+当前电脑如未安装 playwright，需要先安装：
+python -m pip install playwright
+python -m playwright install chromium
+
+也可以直接双击 bat 模板，它们会先尝试安装依赖。
+
+五、调试建议
+先用脚本1的 --only 跑 PART01，确认上传、开始查询、批量导出都没问题。
+等邮箱收到这封导出邮件后，再用脚本2下载附件。
+两边稳定后，再批量跑全部 PART 文件。

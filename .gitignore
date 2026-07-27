@@ -1,0 +1,28 @@
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+.venv/
+venv/
+
+# 本地业务数据和过程结果，不提交
+data/input/
+data/output/
+logs/
+browser_profiles/
+
+# 本地真实配置，不提交
+config.yaml
+
+# 业务表格和导出结果，默认不提交
+*.xlsx
+*.xls
+*.csv
+*.zip
+
+# 系统文件
+.DS_Store
+Thumbs.db

@@ -1,0 +1,66 @@
+﻿# 新人价自动化工具配置
+# 路径可直接复制 Windows 路径；不需要加引号也可以。
+
+source_file: D:\your_path\source.csv
+output_root: D:\your_path\新人价自动化工具\data\output
+
+# 字段配置
+sku_column: SKU(含影)
+product_name_column: sku名称
+mapping_column: 1自营3POP_映射
+shop_column: 店铺名称
+department_column: 1级部门名称（类目运营）
+category2_column: 商品二级分类名称
+erp_column: 销售员ERP帐号
+
+# 筛选规则
+keep_mapping_values:
+  - 自营
+keep_pop_shop_keyword: 京喜
+exclude_category2:
+  - 健康服务套餐
+  - 其他服务
+  - 特殊商品
+exclude_name_keywords:
+  - 非卖品
+  - 赠品
+exclude_erp_accounts:
+  - zhaodong.103
+target_departments:
+  - 医药
+  - 营养保健
+  - 医疗器械
+  - 消费器械
+metric_sum_columns:
+  - 去重计数_用户PIN加密
+  - 求和_成交金额
+  - 去重计数_销售订单编号
+  - 求和_销售数量
+
+# 可选补充名单；留空表示跳过对应步骤
+current_success_skus_file:
+submitted_skus_file:
+price_column:
+price_threshold: 200
+
+# 输出控制
+export_csv: false
+export_removed_details: false
+debug_mode: false
+
+# 查价前 SKU 拆分
+split_base_name: 8月第一批查价前sku
+split_chunk_size: 5000
+split_source_sheet: 筛选结果
+split_source_column: SKU(含影)
+
+# 网页实验功能
+backend_url: https://yx.jd.com/user-operate#/customize/findLowestActivity?pathkey=goodspool
+backend_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\browser_profiles\backend
+backend_wait_after_query: 45
+backend_wait_after_export: 10
+backend_only_file: 8月第一批查价前sku_PART01.xlsx
+outlook_url: https://outlook.office.com/mail/
+outlook_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\browser_profiles\outlook
+outlook_search: 查价 新人价
+outlook_max_mails: 20
