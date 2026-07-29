@@ -21,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--pattern", default="8月第一批查价前sku_PART*.xlsx", help="待上传文件匹配规则")
     parser.add_argument("--only", help="只处理某一个文件名，例如：8月第一批查价前sku_PART01.xlsx")
-    parser.add_argument("--limit", default=0, type=int, help="只处理前 N 个匹配文件；0 表示不限制")
     parser.add_argument(
         "--profile-dir",
         default=r"D:\hansiying.1\Desktop\查价前sku\后台浏览器登录缓存",
@@ -35,7 +34,7 @@ def parse_args() -> argparse.Namespace:
         help="运行日志保存位置",
     )
     parser.add_argument("--wait-after-query", default=45, type=int, help="点击开始查询后等待秒数，用于等待结果刷新")
-    parser.add_argument("--wait-after-export", default=0, type=int, help="点击批量导出后等待秒数；默认不等待邮件")
+    parser.add_argument("--wait-after-export", default=10, type=int, help="点击批量导出后等待秒数")
     parser.add_argument("--pause-after-each", action="store_true", help="每个文件批量导出后暂停，方便人工检查页面")
     parser.add_argument("--headless", action="store_true", help="无界面运行；首次登录和调试不建议开启")
     return parser.parse_args()
@@ -48,11 +47,9 @@ def ensure_playwright() -> None:
         raise RuntimeError("缺少 playwright。请先运行：python -m pip install playwright && python -m playwright install chromium") from exc
 
 
-def get_files(sku_dir: Path, pattern: str, only: str | None, limit: int = 0) -> list[Path]:
+def get_files(sku_dir: Path, pattern: str, only: str | None) -> list[Path]:
     files = [sku_dir / only] if only else sorted(sku_dir.glob(pattern))
     files = [path for path in files if path.is_file()]
-    if limit and limit > 0 and not only:
-        files = files[:limit]
     if not files:
         raise FileNotFoundError(f"未找到待上传文件：{sku_dir / pattern}")
     return files
@@ -105,66 +102,6 @@ def page_and_frames(page):
     return targets
 
 
-def visible_text_exists_anywhere(page, texts: list[str], timeout_ms: int = 1000) -> bool:
-    deadline = time.time() + timeout_ms / 1000
-    script = """
-        (texts) => {
-            const isVisible = (el) => {
-                const style = window.getComputedStyle(el);
-                const rect = el.getBoundingClientRect();
-                return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-            };
-            const nodes = Array.from(document.querySelectorAll('button,[role=button],label,a,.ant-btn,.ant-radio-wrapper,span,div'));
-            return texts.some(text => nodes.some(el => isVisible(el) && (el.innerText || el.value || '').trim().includes(text)));
-        }
-    """
-    while time.time() < deadline:
-        for target in page_and_frames(page):
-            try:
-                if target.evaluate(script, texts):
-                    return True
-            except Exception:
-                continue
-        time.sleep(0.1)
-    return False
-
-
-def fast_click_text_anywhere(page, texts: list[str], timeout_ms: int = 1200, clickable_only: bool = True) -> bool:
-    deadline = time.time() + timeout_ms / 1000
-    script = """
-        ({texts, clickableOnly}) => {
-            const isVisible = (el) => {
-                const style = window.getComputedStyle(el);
-                const rect = el.getBoundingClientRect();
-                return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-            };
-            const norm = (el) => (el.innerText || el.value || '').trim().replace(/\s+/g, ' ');
-            const selector = clickableOnly
-                ? 'button,[role=button],a,.ant-btn,label,.ant-radio-wrapper'
-                : 'button,[role=button],a,.ant-btn,label,.ant-radio-wrapper,span,div';
-            const nodes = Array.from(document.querySelectorAll(selector)).filter(isVisible);
-            for (const text of texts) {
-                let node = nodes.find(el => norm(el) === text);
-                if (!node) node = nodes.find(el => norm(el).includes(text));
-                if (!node) continue;
-                const clickable = node.closest('button,[role=button],a,label,.ant-btn,.ant-radio-wrapper') || node;
-                clickable.click();
-                return true;
-            }
-            return false;
-        }
-    """
-    while time.time() < deadline:
-        for target in page_and_frames(page):
-            try:
-                if target.evaluate(script, {"texts": texts, "clickableOnly": clickable_only}):
-                    return True
-            except Exception:
-                continue
-        time.sleep(0.08)
-    return False
-
-
 def save_debug_snapshot(page, debug_dir: Path, reason: str) -> None:
     debug_dir.mkdir(parents=True, exist_ok=True)
     safe_reason = "".join(ch if ch.isalnum() else "_" for ch in reason)[:40]
@@ -209,7 +146,7 @@ def click_first_available_anywhere(page, selectors: list[tuple[str, str]], timeo
 
 
 
-def wait_upload_area_ready(page, timeout_ms: int = 3000) -> bool:
+def wait_upload_area_ready(page, timeout_ms: int = 15000) -> bool:
     deadline = time.time() + timeout_ms / 1000
     while time.time() < deadline:
         for target in page_and_frames(page):
@@ -218,31 +155,55 @@ def wait_upload_area_ready(page, timeout_ms: int = 3000) -> bool:
                     return True
             except Exception:
                 pass
-        if visible_text_exists_anywhere(page, ["上传文件", "点击上传 Excel 文件", "下载模板"], timeout_ms=150):
-            return True
-        time.sleep(0.1)
+            for text in ["点击上传 Excel 文件", "上传文件", "下载模板"]:
+                try:
+                    target.get_by_text(text, exact=False).first.wait_for(state="visible", timeout=800)
+                    return True
+                except Exception:
+                    pass
+        time.sleep(0.3)
     return False
 
 
-def select_batch_upload(page, debug_dir: Path) -> None:
-    # 测速结果：主定位 js visible text 批量上传；兜底 .ant-radio-wrapper / label。
-    if fast_click_text_anywhere(page, ["批量上传"], timeout_ms=1000, clickable_only=False):
-        if wait_upload_area_ready(page, timeout_ms=2500):
-            return
 
+def select_batch_upload(page, debug_dir: Path) -> None:
+    # 页面必须先选中“批量上传”，才会出现上传文件区域。
+    # 先用 JS 快速点击，避免 Playwright role/text 定位逐个等待导致变慢。
     for target in page_and_frames(page):
         try:
-            target.locator(".ant-radio-wrapper:has-text('批量上传'), label:has-text('批量上传')").first.click(timeout=800)
-            if wait_upload_area_ready(page, timeout_ms=2500):
+            clicked = target.evaluate("""
+                () => {
+                    const nodes = Array.from(document.querySelectorAll('label, span, div'));
+                    const node = nodes.find(el => (el.innerText || '').trim().includes('批量上传'));
+                    if (!node) return false;
+                    const label = node.closest('label') || node;
+                    const radio = label.querySelector('input[type=radio]') || node.querySelector?.('input[type=radio]');
+                    if (radio && !radio.checked) radio.click();
+                    label.click();
+                    return true;
+                }
+            """)
+            if clicked and wait_upload_area_ready(page, timeout_ms=2500):
                 return
         except Exception:
             continue
 
-    if wait_upload_area_ready(page, timeout_ms=500):
+    selectors = [
+        ("role_radio", "批量上传"),
+        ("label", "批量上传"),
+        ("css", ".ant-radio-wrapper:has-text('批量上传')"),
+        ("css", "label:has-text('批量上传')"),
+        ("text", "批量上传"),
+    ]
+    if click_first_available_anywhere(page, selectors, timeout=2000):
+        if wait_upload_area_ready(page, timeout_ms=3000):
+            return
+
+    if wait_upload_area_ready(page, timeout_ms=1000):
         return
+
     save_debug_snapshot(page, debug_dir, "batch_upload_not_selected")
     raise RuntimeError(f"未能选中“批量上传”或上传区域未出现。已保存调试文件到：{debug_dir}")
-
 
 def upload_file(page, file_path: Path, debug_dir: Path) -> None:
     # 直接设置网页/iframe中的上传控件，不依赖 Windows 文件选择窗口。
@@ -353,80 +314,9 @@ def wait_query_finished(page, max_wait_seconds: int, before_state: str | None = 
         time.sleep(0.5)
 
 def confirm_export_if_needed(page) -> None:
-    # 短轮询处理可能出现的确认弹窗；无弹窗时最多等待约 2 秒。
-    deadline = time.time() + 2
-    labels = ["确定", "确认", "知道了", "我知道了"]
-    while time.time() < deadline:
-        clicked = False
-        for label in labels:
-            if fast_click_text_anywhere(page, [label], timeout_ms=120, clickable_only=True):
-                clicked = True
-                time.sleep(0.2)
-                break
-        if not clicked:
-            time.sleep(0.15)
-
-
-
-def handle_inner_erp_login_if_needed(page, log_file: Path, max_wait_seconds: int = 60) -> None:
-    """等待登录页/业务页稳定：看到“内网用户ERP登录”就点击，看到业务页元素就继续。"""
-    deadline = time.time() + max_wait_seconds
-    login_texts = ["内网用户ERP登录", "内网用户erp登录", "内网用户ERP登陆", "内网用户登录"]
-    business_texts = ["查价工具", "批量上传", "上传文件", "开始查询"]
-    clicked_login = False
-    last_log_at = 0.0
-
-    while time.time() < deadline:
-        # 1) 已经进入业务页/工具页，则结束登录处理。
-        try:
-            if visible_text_exists_anywhere(page, business_texts, timeout_ms=300):
-                if clicked_login:
-                    log("已检测到登录后页面元素，继续执行。", log_file)
-                return
-        except Exception:
-            pass
-
-        # 2) 登录按钮出现时直接点击，不再依赖 URL 是否包含 login。
-        clicked = False
-        try:
-            clicked = fast_click_text_anywhere(page, login_texts, timeout_ms=700, clickable_only=False)
-        except Exception:
-            clicked = False
-
-        if not clicked:
-            for target in page_and_frames(page):
-                for text in login_texts:
-                    try:
-                        target.get_by_text(text, exact=False).first.click(timeout=300)
-                        clicked = True
-                        break
-                    except Exception:
-                        continue
-                if clicked:
-                    break
-
-        if clicked:
-            clicked_login = True
-            log("已点击内网用户ERP登录，等待自动登录跳转。", log_file)
-            try:
-                page.wait_for_load_state("domcontentloaded", timeout=5000)
-            except Exception:
-                pass
-            time.sleep(1)
-            continue
-
-        # 3) 未看到登录按钮也未看到业务页时，短暂等待页面跳转/渲染。
-        now = time.time()
-        if now - last_log_at > 10:
-            last_log_at = now
-            try:
-                log(f"等待登录页或业务页渲染中，当前URL：{page.url}", log_file)
-            except Exception:
-                log("等待登录页或业务页渲染中。", log_file)
-        time.sleep(0.5)
-
-    # 超时不直接报错：可能用户仍需手动登录，后续步骤如果找不到元素会保存调试文件。
-    log("未自动检测到内网ERP登录按钮或业务页元素；如浏览器停在登录页，请手动点击内网用户ERP登录。", log_file)
+    # 某些页面点击批量导出后会弹确认框；没有弹窗时会自动跳过。
+    for label in ["确定", "确认", "知道了", "我知道了"]:
+        click_first_available(page, [("role_button", label), ("text", label)], timeout=3000)
 
 
 def main() -> int:
@@ -434,7 +324,7 @@ def main() -> int:
     ensure_playwright()
     from playwright.sync_api import sync_playwright
 
-    files = get_files(args.sku_dir, args.pattern, args.only, args.limit)
+    files = get_files(args.sku_dir, args.pattern, args.only)
     args.profile_dir.mkdir(parents=True, exist_ok=True)
     args.log_file.write_text("", encoding="utf-8")
 
@@ -447,40 +337,30 @@ def main() -> int:
             args=["--start-maximized"],
         )
         page = context.pages[0] if context.pages else context.new_page()
-        page.set_default_timeout(10000)
+        page.set_default_timeout(30000)
         with timed_step("打开后台页面", args.log_file):
             page.goto(args.url, wait_until="domcontentloaded")
 
-        with timed_step("处理内网ERP登录", args.log_file):
-            handle_inner_erp_login_if_needed(page, args.log_file, max_wait_seconds=60)
-
-        log("如果页面仍要求登录，请在打开的浏览器里完成登录；脚本会等待并继续。", args.log_file)
+        log("如果页面要求登录，请在打开的浏览器里完成登录；脚本会等待并继续。", args.log_file)
         with timed_step("进入查价工具", args.log_file):
-            if visible_text_exists_anywhere(page, ["批量上传", "上传文件", "开始查询"], timeout_ms=2500):
-                log("已检测到查价工具页面元素，跳过点击查价工具。", args.log_file)
-            else:
-                clicked_tool = fast_click_text_anywhere(page, ["查价工具"], timeout_ms=1500, clickable_only=False)
-                if not clicked_tool:
-                    click_first_available(page, [("text", "查价工具")], timeout=5000)
+            click_first_available(page, [("text", "查价工具")], timeout=120000)
         with timed_step("选择批量上传", args.log_file):
             select_batch_upload(page, args.log_file.parent / "debug_backend")
 
         for index, file_path in enumerate(files, start=1):
             log(f"[{index}/{len(files)}] 准备上传：{file_path.name}", args.log_file)
+            with timed_step("清空旧文件/旧输入", args.log_file):
+                click_first_available_anywhere(page, [("role_button", "清空"), ("text", "清空")], timeout=500)
             with timed_step(f"上传文件 {file_path.name}", args.log_file):
                 upload_file(page, file_path, args.log_file.parent / "debug_backend")
 
             before_query_state = get_result_state(page)
             with timed_step("点击开始查询", args.log_file):
-                started = fast_click_text_anywhere(page, ["开始查询"], timeout_ms=1000, clickable_only=True)
-                if not started:
-                    started = fast_click_text_anywhere(page, ["查询"], timeout_ms=1000, clickable_only=True)
-                if not started:
-                    started = click_first_available_anywhere(
-                        page,
-                        [("role_button", "开始查询"), ("css", "button:has-text('开始查询')"), ("role_button", "查询"), ("css", "button:has-text('查询')")],
-                        timeout=800,
-                    )
+                started = click_first_available_anywhere(
+                    page,
+                    [("role_button", "开始查询"), ("text", "开始查询"), ("role_button", "查询"), ("text", "查询"), ("css", "button:has-text('开始查询')"), ("css", "button:has-text('查询')")],
+                    timeout=5000,
+                )
             if not started:
                 raise RuntimeError("找不到“开始查询”按钮。")
             log(f"[{index}/{len(files)}] 已点击开始查询：{file_path.name}", args.log_file)
@@ -489,18 +369,17 @@ def main() -> int:
             log(f"[{index}/{len(files)}] 查询等待结束，准备点击批量导出。", args.log_file)
 
             with timed_step("点击批量导出", args.log_file):
-                exported = fast_click_text_anywhere(page, ["批量导出"], timeout_ms=1000, clickable_only=True)
-                if not exported:
-                    exported = click_first_available_anywhere(
-                        page,
-                        [("role_button", "批量导出"), ("css", "button:has-text('批量导出')")],
-                        timeout=800,
-                    )
+                exported = click_first_available_anywhere(
+                    page,
+                    [("role_button", "批量导出"), ("text", "批量导出"), ("css", "button:has-text('批量导出')")],
+                    timeout=30000,
+                )
             if not exported:
                 raise RuntimeError("找不到“批量导出”按钮。")
-            with timed_step("处理导出确认（如有）", args.log_file):
+            with timed_step("处理导出确认/等待邮件任务提交", args.log_file):
                 confirm_export_if_needed(page)
-            log(f"[{index}/{len(files)}] 已点击批量导出：{file_path.name}", args.log_file)
+                time.sleep(args.wait_after_export)
+            log(f"[{index}/{len(files)}] 已点击批量导出，等待邮件发送：{file_path.name}", args.log_file)
 
             if args.pause_after_each:
                 input("已完成当前文件上传、查询和批量导出。检查页面后，按回车继续下一个文件...")

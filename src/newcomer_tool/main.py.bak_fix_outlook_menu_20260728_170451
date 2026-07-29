@@ -1,0 +1,235 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+from .config import PROJECT_ROOT, load_config, print_config
+from .filtering import run_filtering
+from .split_sku import run_split
+
+
+def pause() -> None:
+    input("\n按回车继续...")
+
+
+def confirm(message: str) -> bool:
+    return input(f"{message}\n输入 y 继续，其他键取消：").strip().lower() == "y"
+
+
+
+def print_filter_result(result: dict) -> None:
+    print("\n筛品完成")
+    print(f"状态：{result['status']}")
+    print(f"源文件：{result['source_file']}")
+    print(f"源数据：{result['source_rows']}条")
+    print(f"最终结果：{result['rows']}条")
+    print(f"结果文件：{result['xlsx']}")
+    print(f"SKU文件：{result['sku_file']}")
+    print(f"日志文件：{result['log']}")
+    if result.get("audit_report"):
+        print(f"审核报告：{result['audit_report']}")
+    if result.get("csv"):
+        print(f"CSV文件：{result['csv']}")
+
+    print("\n筛品日志：")
+    for line in result.get("logs", []):
+        print(line)
+
+    warning_count = len(result.get("warnings", []))
+    failure_count = len(result.get("failures", []))
+    if warning_count or failure_count:
+        print("\n审核提示：")
+        if warning_count:
+            print(f"预警：{warning_count}个，详见审核报告。")
+        if failure_count:
+            print(f"失败：{failure_count}个，详见审核报告。")
+    if result["status"] == "WARN":
+        print("建议查看审核报告后再进入下一模块。")
+    if result["status"] == "FAIL":
+        print("筛品失败，不建议进入下一模块。")
+
+
+def run_filter_step(config) -> dict | None:
+    print_config(config)
+    if not confirm("准备执行【筛品】。"):
+        return None
+    result = run_filtering(config)
+    print_filter_result(result)
+    return result
+
+
+def run_split_step(config) -> None:
+    print_config(config)
+    if not confirm("准备执行【提取并拆分查价前SKU】。"):
+        return
+    result = run_split(config)
+    print("\n拆分完成：")
+    print(f"- 来源：{result['source']}")
+    print(f"- SKU数量：{result['sku_count']}")
+    print(f"- 汇总文件：{result['summary']}")
+    print(f"- PART文件数：{len(result['parts'])}")
+    for path in result["parts"]:
+        print(f"  {path}")
+
+
+def run_local_pipeline(config) -> None:
+    print_config(config)
+    if not confirm("准备执行【筛品 + 提取拆分】。"):
+        return
+    filter_result = run_filtering(config)
+    print_filter_result(filter_result)
+    if filter_result["status"] == "FAIL":
+        print("筛品失败，已停止拆分。")
+        return
+    split_result = run_split(config, filter_result["sku_file"])
+    print("\n本地流程完成：")
+    print(f"- 筛品结果：{filter_result['xlsx']}")
+    print(f"- 审核报告：{filter_result['audit_report']}")
+    print(f"- 筛品SKU文件：{filter_result['sku_file']}")
+    print(f"- 拆分SKU数量：{split_result['sku_count']}")
+    print(f"- 拆分目录：{config.split_output_dir}")
+
+
+def run_script(script_path: Path, args: list[str]) -> None:
+    if not script_path.exists():
+        raise FileNotFoundError(f"脚本不存在：{script_path}")
+    command = [sys.executable, str(script_path), *args]
+    print("即将运行：")
+    print(" ".join(command))
+    subprocess.run(command, check=True)
+
+
+def run_backend_experiment(config) -> None:
+    pattern = f"{config.get('split_base_name')}_PART*.xlsx"
+    files = sorted(config.split_output_dir.glob(pattern))
+    if not files:
+        print(f"未找到待上传文件：{config.split_output_dir / pattern}")
+        return
+
+    print("\n后台上传范围：")
+    print(f"当前目录：{config.split_output_dir}")
+    print(f"匹配规则：{pattern}")
+    print(f"找到文件数：{len(files)}")
+    print("1 只跑 1 个文件（从 PART01 开始）")
+    print("2 只跑 2 个文件（从 PART01 开始）")
+    print("3 跑全量文件")
+    print("0 取消")
+    upload_choice = input("请选择后台上传范围：").strip()
+
+    if upload_choice == "0":
+        return
+    if upload_choice == "1":
+        limit = 1
+        scope_label = f"前 1 个文件：{files[0].name}"
+    elif upload_choice == "2":
+        limit = 2
+        preview = "、".join(path.name for path in files[:2])
+        scope_label = f"前 {min(2, len(files))} 个文件：{preview}"
+    elif upload_choice == "3":
+        limit = 0
+        scope_label = f"全量 {len(files)} 个文件"
+    else:
+        print("无效选择，已取消。")
+        return
+
+    if not confirm(f"准备执行【后台上传并批量导出到邮箱（实验）】。本次范围：{scope_label}"):
+        return
+
+    script = PROJECT_ROOT / "src" / "newcomer_tool" / "web_steps" / "backend_upload_export.py"
+    args = [
+        "--url", str(config.get("backend_url")),
+        "--sku-dir", str(config.split_output_dir),
+        "--pattern", pattern,
+        "--profile-dir", str(config.get("backend_profile_dir")),
+        "--log-file", str(PROJECT_ROOT / "logs" / "后台查价自动上传日志.txt"),
+        "--wait-after-query", str(config.get("backend_wait_after_query")),
+        "--wait-after-export", "0",
+    ]
+    if limit > 0:
+        args.extend(["--limit", str(limit)])
+    run_script(script, args)
+
+
+def run_outlook_experiment(config) -> None:
+    print("
+Outlook客户端邮件下载：")
+    print("1 只提取未读邮件下载链接（推荐先测）")
+    print("2 直接下载链接到项目输出目录（推荐）")
+    print("3 用默认浏览器打开链接（按人工流程，可能需要手动点保留）")
+    print("0 取消")
+    outlook_choice = input("请选择：").strip()
+
+    if outlook_choice == "0":
+        return
+    if outlook_choice == "1":
+        mode = "list"
+        confirm_text = "准备执行【只提取 Outlook 未读邮件下载链接】。"
+    elif outlook_choice == "2":
+        mode = "download"
+        confirm_text = "准备执行【直接下载 Outlook 邮件链接】。"
+    elif outlook_choice == "3":
+        mode = "open"
+        confirm_text = "准备执行【用默认浏览器打开 Outlook 邮件链接】。"
+    else:
+        print("无效选择，已取消。")
+        return
+
+    if not confirm(confirm_text):
+        return
+
+    script = PROJECT_ROOT / "src" / "newcomer_tool" / "web_steps" / "outlook_download.py"
+    args = [
+        "--mode", mode,
+        "--download-dir", str(config.download_output_dir),
+        "--log-file", str(PROJECT_ROOT / "logs" / "Outlook客户端下载日志.txt"),
+        "--subject-keyword", "商品下载完成通知",
+        "--sender-keyword", "selectionserver@jd.com",
+        "--url-keyword", ".xlsx",
+        "--max-mails", str(config.get("outlook_max_mails") or 30),
+    ]
+    run_script(script, args)
+
+
+def main() -> int:
+    while True:
+        config = load_config()
+        print("\n========== 新人价自动化工具 MVP ==========")
+        print("1 筛品")
+        print("2 提取并拆分查价前SKU")
+        print("3 一键执行本地流程")
+        print("4 后台上传并批量导出到邮箱（实验）")
+        print("5 Outlook邮件下载（实验）")
+        print("6 查看当前配置")
+        print("0 退出")
+        choice = input("请选择：").strip()
+        try:
+            if choice == "1":
+                run_filter_step(config)
+                pause()
+            elif choice == "2":
+                run_split_step(config)
+                pause()
+            elif choice == "3":
+                run_local_pipeline(config)
+                pause()
+            elif choice == "4":
+                run_backend_experiment(config)
+                pause()
+            elif choice == "5":
+                run_outlook_experiment(config)
+                pause()
+            elif choice == "6":
+                print_config(config)
+                pause()
+            elif choice == "0":
+                return 0
+            else:
+                print("无效选择。")
+        except Exception as exc:
+            print(f"\n执行失败：{exc}")
+            pause()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

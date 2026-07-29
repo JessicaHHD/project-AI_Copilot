@@ -10,14 +10,12 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_SUBJECT_KEYWORD = "商品下载完成通知"
 DEFAULT_SENDER_KEYWORD = "selectionserver@jd.com"
-TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,14 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subject-keyword", default=DEFAULT_SUBJECT_KEYWORD, help="邮件主题关键词")
     parser.add_argument("--sender-keyword", default=DEFAULT_SENDER_KEYWORD, help="发件人关键词；为空则不限制")
     parser.add_argument("--url-keyword", default=".xlsx", help="链接关键词；为空则提取全部 http 链接")
-    parser.add_argument("--max-mails", type=int, default=80, help="最多扫描多少封邮件")
+    parser.add_argument("--max-mails", type=int, default=30, help="最多扫描多少封邮件")
     parser.add_argument("--include-read", action="store_true", help="包含已读邮件；默认只处理未读邮件")
-    parser.add_argument("--mark-read", action="store_true", help="处理成功后把对应邮件标记为已读")
-    parser.add_argument("--expected-count", type=int, default=0, help="本批预期下载链接数量；0 表示不按数量截断")
-    parser.add_argument("--batch-window-minutes", type=int, default=10, help="只处理和最新匹配邮件时间相近的邮件，单位分钟")
+    parser.add_argument("--mark-read", action="store_true", help="提取到链接后把对应邮件标记为已读")
     parser.add_argument("--open-delay", type=float, default=1.5, help="open 模式下每个链接打开间隔秒数")
     parser.add_argument("--download-timeout", type=int, default=120, help="download 模式下单个链接超时秒数")
-    parser.add_argument("--limit-links", type=int, default=0, help="最多处理多少个链接；0 表示不限制。兼容旧参数，优先级低于 expected-count")
+    parser.add_argument("--limit-links", type=int, default=0, help="最多处理多少个链接；0 表示不限制")
     return parser.parse_args()
 
 
@@ -51,15 +47,17 @@ def log(message: str, log_file: Path) -> None:
 def powershell_extract_mails(args: argparse.Namespace) -> list[dict[str, Any]]:
     ps_code = r"""
 param(
-    [int]$MaxMails = 80,
+    [int]$MaxMails = 30,
     [string]$SubjectKeyword = "商品下载完成通知",
     [string]$SenderKeyword = "selectionserver@jd.com",
     [string]$UrlKeyword = ".xlsx",
-    [string]$UnreadOnly = "true"
+    [string]$UnreadOnly = "true",
+    [string]$MarkRead = "false"
 )
 
 $ErrorActionPreference = "Stop"
 $UnreadOnlyFlag = [System.Convert]::ToBoolean($UnreadOnly)
+$MarkReadFlag = [System.Convert]::ToBoolean($MarkRead)
 Add-Type -AssemblyName System.Web
 
 $outlook = New-Object -ComObject Outlook.Application
@@ -115,6 +113,10 @@ foreach ($mail in $items) {
                 EntryID = [string]$mail.EntryID
                 Links = @($links)
             })
+            if ($MarkReadFlag) {
+                $mail.UnRead = $false
+                $mail.Save()
+            }
         }
     } catch {
         continue
@@ -144,6 +146,8 @@ $results | ConvertTo-Json -Depth 6
         args.url_keyword,
         "-UnreadOnly",
         "true" if not args.include_read else "false",
+        "-MarkRead",
+        "true" if args.mark_read else "false",
     ]
     try:
         completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -173,72 +177,6 @@ $results | ConvertTo-Json -Depth 6
     return list(data)
 
 
-def mark_mails_read(entry_ids: list[str], log_file: Path) -> None:
-    unique_ids = sorted({entry_id for entry_id in entry_ids if entry_id})
-    if not unique_ids:
-        return
-
-    log(f"开始标记邮件为已读：{len(unique_ids)} 封。", log_file)
-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as file:
-        for entry_id in unique_ids:
-            file.write(entry_id + "\n")
-        ids_path = Path(file.name)
-
-    ps_code = r"""
-param([string]$EntryIdFile)
-$ErrorActionPreference = "Stop"
-$outlook = New-Object -ComObject Outlook.Application
-$namespace = $outlook.GetNamespace("MAPI")
-$ids = Get-Content -LiteralPath $EntryIdFile -Encoding UTF8
-$changed = 0
-foreach ($id in $ids) {
-    if (-not $id) { continue }
-    try {
-        $mail = $namespace.GetItemFromID($id)
-        if ($mail -and $mail.UnRead) {
-            $mail.UnRead = $false
-            $mail.Save()
-            $changed += 1
-        }
-    } catch {}
-}
-Write-Output $changed
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8-sig") as file:
-        file.write(ps_code)
-        ps_path = Path(file.name)
-
-    try:
-        completed = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps_path), "-EntryIdFile", str(ids_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        changed = completed.stdout.strip() or "0"
-        log(f"已标记邮件为已读：{changed} 封。", log_file)
-    except subprocess.TimeoutExpired:
-        log("标记已读超时：已跳过该步骤，下载文件已完成。可稍后手动在 Outlook 标记已读。", log_file)
-    except Exception as exc:
-        log(f"标记已读失败：{exc}", log_file)
-    finally:
-        try:
-            ps_path.unlink(missing_ok=True)
-            ids_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-def parse_received_time(value: str) -> datetime | None:
-    try:
-        return datetime.strptime(value, TIME_FORMAT)
-    except Exception:
-        return None
-
-
-
 def flatten_links(mails: list[dict[str, Any]]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -256,34 +194,8 @@ def flatten_links(mails: list[dict[str, Any]]) -> list[dict[str, str]]:
                 "subject": str(mail.get("Subject", "")),
                 "sender": str(mail.get("Sender", "")),
                 "received_time": str(mail.get("ReceivedTime", "")),
-                "entry_id": str(mail.get("EntryID", "")),
             })
-    rows.sort(key=lambda row: parse_received_time(row.get("received_time", "")) or datetime.min, reverse=True)
     return rows
-
-def filter_latest_batch(rows: list[dict[str, str]], expected_count: int, batch_window_minutes: int) -> tuple[list[dict[str, str]], str]:
-    if not rows:
-        return [], "未找到匹配链接"
-
-    newest_time = parse_received_time(rows[0].get("received_time", ""))
-    if not newest_time:
-        limited = rows[:expected_count] if expected_count > 0 else rows
-        return limited, "无法解析邮件时间，已按最新顺序截断"
-
-    window_start = newest_time - timedelta(minutes=max(1, batch_window_minutes))
-    batch_rows = []
-    for row in rows:
-        received_time = parse_received_time(row.get("received_time", ""))
-        if received_time and received_time >= window_start:
-            batch_rows.append(row)
-
-    before_count = len(batch_rows)
-    if expected_count > 0:
-        batch_rows = batch_rows[:expected_count]
-    message = f"最新邮件时间 {newest_time.strftime(TIME_FORMAT)}，批次窗口 {batch_window_minutes} 分钟，窗口内链接 {before_count} 个"
-    if expected_count > 0:
-        message += f"，本次按预期数量保留 {len(batch_rows)}/{expected_count} 个"
-    return batch_rows, message
 
 
 def filename_from_response(url: str, response) -> str:
@@ -351,22 +263,15 @@ def main() -> int:
     args.log_file.parent.mkdir(parents=True, exist_ok=True)
     args.log_file.write_text("", encoding="utf-8")
 
-    expected_count = args.expected_count or args.limit_links or 0
     log("开始：从 Outlook 客户端读取邮件。", args.log_file)
     log(f"筛选：主题包含“{args.subject_keyword}”；发件人包含“{args.sender_keyword or '不限制'}”；{'包含已读' if args.include_read else '仅未读'}。", args.log_file)
-    if expected_count > 0:
-        log(f"本批预期链接数量：{expected_count}；批次时间窗口：{args.batch_window_minutes} 分钟。", args.log_file)
-
     mails = powershell_extract_mails(args)
-    all_rows = flatten_links(mails)
-    rows, batch_message = filter_latest_batch(all_rows, expected_count, args.batch_window_minutes)
+    rows = flatten_links(mails)
+    if args.limit_links and args.limit_links > 0:
+        rows = rows[: args.limit_links]
     report = write_link_report(rows, args.log_file)
-    log(f"匹配邮件：{len(mails)} 封；匹配链接：{len(all_rows)} 个；本批处理链接：{len(rows)} 个。", args.log_file)
-    log(batch_message, args.log_file)
+    log(f"找到邮件：{len(mails)} 封；下载链接：{len(rows)} 个。", args.log_file)
     log(f"链接报告：{report}", args.log_file)
-
-    if expected_count > 0 and len(rows) != expected_count:
-        log(f"预警：本批处理链接数 {len(rows)} 与预期数量 {expected_count} 不一致，请检查是否还有邮件未到或筛选条件过窄。", args.log_file)
 
     if not rows:
         log("未找到可处理链接。请确认 Outlook 客户端已登录、邮件未读、主题/发件人筛选正确。", args.log_file)
@@ -377,10 +282,9 @@ def main() -> int:
         log(f"链接：{row['url']}", args.log_file)
 
     if args.mode == "list":
-        log("当前为 list 模式：只提取链接，不下载、不打开浏览器、不标记已读。", args.log_file)
+        log("当前为 list 模式：只提取链接，不下载、不打开浏览器。", args.log_file)
         return 0
 
-    processed_entry_ids: list[str] = []
     if args.mode == "download":
         success = 0
         for index, row in enumerate(rows, start=1):
@@ -388,7 +292,6 @@ def main() -> int:
                 log(f"[{index}/{len(rows)}] 开始直接下载。", args.log_file)
                 target = download_url(row["url"], args.download_dir, args.download_timeout)
                 success += 1
-                processed_entry_ids.append(row.get("entry_id", ""))
                 log(f"[{index}/{len(rows)}] 下载完成：{target}", args.log_file)
             except Exception as exc:
                 log(f"[{index}/{len(rows)}] 直接下载失败：{exc}。可改用 open 模式让浏览器下载。", args.log_file)
@@ -399,7 +302,6 @@ def main() -> int:
         for index, row in enumerate(rows, start=1):
             log(f"[{index}/{len(rows)}] 用默认浏览器打开链接。", args.log_file)
             open_url(row["url"])
-            processed_entry_ids.append(row.get("entry_id", ""))
             time.sleep(max(0.2, args.open_delay))
         log("已全部打开链接。若 Chrome 阻止不安全下载，请在浏览器右上角下载图标中点击“保留”。", args.log_file)
         return 0

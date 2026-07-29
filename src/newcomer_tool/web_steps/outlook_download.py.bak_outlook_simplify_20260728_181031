@@ -392,6 +392,8 @@ def main() -> int:
                 log(f"[{index}/{len(rows)}] 下载完成：{target}", args.log_file)
             except Exception as exc:
                 log(f"[{index}/{len(rows)}] 直接下载失败：{exc}。可改用 open 模式让浏览器下载。", args.log_file)
+        if args.mark_read and processed_entry_ids:
+            mark_mails_read(processed_entry_ids, args.log_file)
         log(f"直接下载完成：成功 {success}/{len(rows)} 个；目录：{args.download_dir}", args.log_file)
         return 0
 
@@ -401,6 +403,8 @@ def main() -> int:
             open_url(row["url"])
             processed_entry_ids.append(row.get("entry_id", ""))
             time.sleep(max(0.2, args.open_delay))
+        if args.mark_read and processed_entry_ids:
+            mark_mails_read(processed_entry_ids, args.log_file)
         log("已全部打开链接。若 Chrome 阻止不安全下载，请在浏览器右上角下载图标中点击“保留”。", args.log_file)
         return 0
 

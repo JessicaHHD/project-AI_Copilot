@@ -21,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--pattern", default="8月第一批查价前sku_PART*.xlsx", help="待上传文件匹配规则")
     parser.add_argument("--only", help="只处理某一个文件名，例如：8月第一批查价前sku_PART01.xlsx")
-    parser.add_argument("--limit", default=0, type=int, help="只处理前 N 个匹配文件；0 表示不限制")
     parser.add_argument(
         "--profile-dir",
         default=r"D:\hansiying.1\Desktop\查价前sku\后台浏览器登录缓存",
@@ -48,11 +47,9 @@ def ensure_playwright() -> None:
         raise RuntimeError("缺少 playwright。请先运行：python -m pip install playwright && python -m playwright install chromium") from exc
 
 
-def get_files(sku_dir: Path, pattern: str, only: str | None, limit: int = 0) -> list[Path]:
+def get_files(sku_dir: Path, pattern: str, only: str | None) -> list[Path]:
     files = [sku_dir / only] if only else sorted(sku_dir.glob(pattern))
     files = [path for path in files if path.is_file()]
-    if limit and limit > 0 and not only:
-        files = files[:limit]
     if not files:
         raise FileNotFoundError(f"未找到待上传文件：{sku_dir / pattern}")
     return files
@@ -434,7 +431,7 @@ def main() -> int:
     ensure_playwright()
     from playwright.sync_api import sync_playwright
 
-    files = get_files(args.sku_dir, args.pattern, args.only, args.limit)
+    files = get_files(args.sku_dir, args.pattern, args.only)
     args.profile_dir.mkdir(parents=True, exist_ok=True)
     args.log_file.write_text("", encoding="utf-8")
 

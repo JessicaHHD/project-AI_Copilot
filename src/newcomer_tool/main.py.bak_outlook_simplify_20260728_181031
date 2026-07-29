@@ -5,9 +5,7 @@ import sys
 from pathlib import Path
 
 from .config import PROJECT_ROOT, load_config, print_config
-from .final_pricing import run_final_pricing
 from .filtering import run_filtering
-from .registration_prepare import run_registration_prepare
 from .split_sku import run_split
 
 
@@ -93,24 +91,6 @@ def run_local_pipeline(config) -> None:
     print(f"- 拆分目录：{config.split_output_dir}")
 
 
-def run_final_pricing_step(config) -> None:
-    print_config(config)
-    if not confirm("准备执行【查价结果整合并生成新人价】。"):
-        return
-    result = run_final_pricing(config)
-    print("\n最终整合完成：")
-    print(f"- 筛品结果：{result['filter_file']}")
-    print(f"- 查价文件数：{len(result['price_files'])}")
-    print(f"- 查价字段：{result['lookup_column']}")
-    print(f"- 筛品行数：{result['source_rows']}")
-    print(f"- 匹配查价：{result['matched_rows']}")
-    print(f"- 未匹配查价：{result['missing_rows']}")
-    print(f"- 剔除新人价>=200：{result['removed_rows']}")
-    print(f"- 最终保留：{result['final_rows']}")
-    print(f"- 去重销售员ERP：{result['erp_count']}")
-    print(f"- 输出文件：{result['output_file']}")
-
-
 def run_script(script_path: Path, args: list[str]) -> None:
     if not script_path.exists():
         raise FileNotFoundError(f"脚本不存在：{script_path}")
@@ -173,8 +153,9 @@ def run_backend_experiment(config) -> None:
 
 def run_outlook_experiment(config) -> None:
     print("\nOutlook客户端邮件下载：")
-    print("1 只提取未读邮件下载链接（推荐先测）")
-    print("2 直接下载链接到项目输出目录")
+    print("1 只提取未读邮件下载链接（推荐先测，不标已读）")
+    print("2 直接下载链接到项目输出目录（下载成功后标已读）")
+    print("3 用默认浏览器打开链接（打开后标已读，可能需要手动点保留）")
     print("0 取消")
     outlook_choice = input("请选择：").strip()
 
@@ -186,6 +167,9 @@ def run_outlook_experiment(config) -> None:
     elif outlook_choice == "2":
         mode = "download"
         confirm_text = "准备执行【直接下载 Outlook 邮件链接】。"
+    elif outlook_choice == "3":
+        mode = "open"
+        confirm_text = "准备执行【用默认浏览器打开 Outlook 邮件链接】。"
     else:
         print("无效选择，已取消。")
         return
@@ -237,151 +221,9 @@ def run_outlook_experiment(config) -> None:
         "--expected-count", str(expected_count),
         "--batch-window-minutes", "10",
     ]
+    if mode in {"download", "open"}:
+        args.append("--mark-read")
     run_script(script, args)
-
-
-def run_registration_prepare_step(config) -> None:
-    default_dir = Path(str(config.get("registration_input_dir", PROJECT_ROOT / "data" / "input" / "提报确认表")))
-    print("\n从采销确认表生成提报文件：")
-    print(f"建议把确认表放在：{default_dir}")
-    source_text = input("请输入采销确认表Excel完整路径：").strip().strip('"')
-    if not source_text:
-        print("未输入文件路径，已取消。")
-        return
-    result = run_registration_prepare(config, Path(source_text))
-    print("\n提报文件生成完成：")
-    print(f"- 来源：{result['source']}")
-    print(f"- 确认报名SKU数：{result['rows']}")
-    print(f"- 汇总文件：{result['summary']}")
-    print(f"- PART文件数：{len(result['parts'])}")
-    for path in result["parts"]:
-        print(f"  {path}")
-    print(f"- 生成日志：{result['log']}")
-
-
-def run_registration_submit_step(config) -> None:
-    submit_dir = Path(str(config.get("registration_submit_dir")))
-    pattern = str(config.get("registration_submit_pattern") or "新人价提报_PART*.xlsx")
-    files = sorted(submit_dir.glob(pattern)) if submit_dir.exists() else []
-    if not files:
-        print(f"未找到提报文件：{submit_dir / pattern}")
-        return
-
-    print("\n新人价后台批量提报文件（安全模式）：")
-    print(f"当前目录：{submit_dir}")
-    print(f"匹配规则：{pattern}")
-    print(f"找到文件数：{len(files)}")
-    print("1 演练到上传页，不上传不提交（推荐）")
-    print("2 上传文件但不提交")
-    print("3 真实提交")
-    print("0 取消")
-    mode_choice = input("请选择运行模式：").strip()
-    if mode_choice == "0":
-        return
-    if mode_choice == "1":
-        mode = "dry_run"
-        mode_label = "演练到上传页，不上传不提交"
-    elif mode_choice == "2":
-        mode = "upload_only"
-        mode_label = "上传文件但不提交"
-    elif mode_choice == "3":
-        mode = "submit"
-        mode_label = "真实提交"
-    else:
-        print("无效选择，已取消。")
-        return
-
-    print("\n提报文件起始位置：")
-    print(f"找到文件数：{len(files)}")
-    print(f"第 1 个文件：{files[0].name}")
-    if len(files) >= 2:
-        print(f"第 2 个文件：{files[1].name}")
-    raw_start_index = input("请输入从第几个文件开始（默认 1；已提交PART01则输入 2）：").strip()
-    if raw_start_index:
-        try:
-            start_index = int(raw_start_index)
-        except ValueError:
-            print("起始序号不是数字，已取消。")
-            return
-    else:
-        start_index = 1
-    if start_index < 1 or start_index > len(files):
-        print(f"起始序号超出范围：1-{len(files)}，已取消。")
-        return
-    remaining_files = files[start_index - 1 :]
-
-    print("\n提报文件范围：")
-    print("1 从起始位置只跑 1 个文件（默认安全测试）")
-    print("2 从起始位置只跑 2 个文件")
-    print("3 从起始位置跑到最后")
-    print("0 取消")
-    scope_choice = input("请选择文件范围：").strip()
-    if scope_choice == "0":
-        return
-    if scope_choice == "1":
-        limit = 1
-        selected_files = remaining_files[:1]
-    elif scope_choice == "2":
-        limit = 2
-        selected_files = remaining_files[:2]
-    elif scope_choice == "3":
-        limit = 0
-        selected_files = remaining_files
-        if input("全量执行风险更高。如确认从起始位置跑到最后，请输入 全量提报 ：").strip() != "全量提报":
-            print("未确认全量，已取消。")
-            return
-    else:
-        print("无效选择，已取消。")
-        return
-    preview = "、".join(path.name for path in selected_files[:5])
-    if len(selected_files) > 5:
-        preview += f" 等 {len(selected_files)} 个文件"
-    scope_label = f"从第 {start_index} 个开始，处理 {len(selected_files)} 个文件：{preview}"
-
-    print("\n本次提报安全确认：")
-    print(f"- 运行模式：{mode_label}")
-    print(f"- 文件范围：{scope_label}")
-    print(f"- 后台URL：{config.get('registration_url')}")
-    print(f"- 月份选择阈值：每月 {config.get('registration_month_threshold_day')} 号及以后优先下月")
-    if mode == "submit":
-        if input("真实提交会点击后台“提交”。如确认真实提交，请输入 确认提报 ：").strip() != "确认提报":
-            print("未输入确认提报，已取消。")
-            return
-    elif not confirm("准备执行安全测试流程。当前模式不会点击提交。"):
-        return
-
-    script = PROJECT_ROOT / "src" / "newcomer_tool" / "web_steps" / "registration_submit.py"
-    args = [
-        "--url", str(config.get("registration_url")),
-        "--submit-dir", str(submit_dir),
-        "--pattern", pattern,
-        "--profile-dir", str(config.get("registration_profile_dir")),
-        "--log-file", str(PROJECT_ROOT / "logs" / "新人价提报自动上传日志.txt"),
-        "--mode", mode,
-        "--start-index", str(start_index),
-        "--month-threshold-day", str(config.get("registration_month_threshold_day") or 25),
-    ]
-    args.extend(["--limit", str(limit)])
-    if mode == "submit":
-        args.extend(["--confirm-submit", "确认提报"])
-    run_script(script, args)
-
-
-def run_registration_menu(config) -> None:
-    print("\n提报/审核整理：")
-    print("1 从采销确认表生成提报文件")
-    print("2 后台批量提报文件（安全测试）")
-    print("0 返回")
-    choice = input("请选择：").strip()
-    if choice == "1":
-        run_registration_prepare_step(config)
-    elif choice == "2":
-        run_registration_submit_step(config)
-    elif choice == "0":
-        return
-    else:
-        print("无效选择。")
-
 
 def main() -> int:
     while True:
@@ -393,8 +235,6 @@ def main() -> int:
         print("4 后台上传并批量导出到邮箱（实验）")
         print("5 Outlook邮件下载（实验）")
         print("6 查看当前配置")
-        print("7 查价结果整合并生成新人价")
-        print("8 提报/审核整理")
         print("0 退出")
         choice = input("请选择：").strip()
         try:
@@ -415,12 +255,6 @@ def main() -> int:
                 pause()
             elif choice == "6":
                 print_config(config)
-                pause()
-            elif choice == "7":
-                run_final_pricing_step(config)
-                pause()
-            elif choice == "8":
-                run_registration_menu(config)
                 pause()
             elif choice == "0":
                 return 0

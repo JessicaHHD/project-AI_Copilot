@@ -21,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--pattern", default="8月第一批查价前sku_PART*.xlsx", help="待上传文件匹配规则")
     parser.add_argument("--only", help="只处理某一个文件名，例如：8月第一批查价前sku_PART01.xlsx")
-    parser.add_argument("--limit", default=0, type=int, help="只处理前 N 个匹配文件；0 表示不限制")
     parser.add_argument(
         "--profile-dir",
         default=r"D:\hansiying.1\Desktop\查价前sku\后台浏览器登录缓存",
@@ -35,7 +34,7 @@ def parse_args() -> argparse.Namespace:
         help="运行日志保存位置",
     )
     parser.add_argument("--wait-after-query", default=45, type=int, help="点击开始查询后等待秒数，用于等待结果刷新")
-    parser.add_argument("--wait-after-export", default=0, type=int, help="点击批量导出后等待秒数；默认不等待邮件")
+    parser.add_argument("--wait-after-export", default=5, type=int, help="点击批量导出后等待秒数")
     parser.add_argument("--pause-after-each", action="store_true", help="每个文件批量导出后暂停，方便人工检查页面")
     parser.add_argument("--headless", action="store_true", help="无界面运行；首次登录和调试不建议开启")
     return parser.parse_args()
@@ -48,11 +47,9 @@ def ensure_playwright() -> None:
         raise RuntimeError("缺少 playwright。请先运行：python -m pip install playwright && python -m playwright install chromium") from exc
 
 
-def get_files(sku_dir: Path, pattern: str, only: str | None, limit: int = 0) -> list[Path]:
+def get_files(sku_dir: Path, pattern: str, only: str | None) -> list[Path]:
     files = [sku_dir / only] if only else sorted(sku_dir.glob(pattern))
     files = [path for path in files if path.is_file()]
-    if limit and limit > 0 and not only:
-        files = files[:limit]
     if not files:
         raise FileNotFoundError(f"未找到待上传文件：{sku_dir / pattern}")
     return files
@@ -367,74 +364,12 @@ def confirm_export_if_needed(page) -> None:
             time.sleep(0.15)
 
 
-
-def handle_inner_erp_login_if_needed(page, log_file: Path, max_wait_seconds: int = 60) -> None:
-    """等待登录页/业务页稳定：看到“内网用户ERP登录”就点击，看到业务页元素就继续。"""
-    deadline = time.time() + max_wait_seconds
-    login_texts = ["内网用户ERP登录", "内网用户erp登录", "内网用户ERP登陆", "内网用户登录"]
-    business_texts = ["查价工具", "批量上传", "上传文件", "开始查询"]
-    clicked_login = False
-    last_log_at = 0.0
-
-    while time.time() < deadline:
-        # 1) 已经进入业务页/工具页，则结束登录处理。
-        try:
-            if visible_text_exists_anywhere(page, business_texts, timeout_ms=300):
-                if clicked_login:
-                    log("已检测到登录后页面元素，继续执行。", log_file)
-                return
-        except Exception:
-            pass
-
-        # 2) 登录按钮出现时直接点击，不再依赖 URL 是否包含 login。
-        clicked = False
-        try:
-            clicked = fast_click_text_anywhere(page, login_texts, timeout_ms=700, clickable_only=False)
-        except Exception:
-            clicked = False
-
-        if not clicked:
-            for target in page_and_frames(page):
-                for text in login_texts:
-                    try:
-                        target.get_by_text(text, exact=False).first.click(timeout=300)
-                        clicked = True
-                        break
-                    except Exception:
-                        continue
-                if clicked:
-                    break
-
-        if clicked:
-            clicked_login = True
-            log("已点击内网用户ERP登录，等待自动登录跳转。", log_file)
-            try:
-                page.wait_for_load_state("domcontentloaded", timeout=5000)
-            except Exception:
-                pass
-            time.sleep(1)
-            continue
-
-        # 3) 未看到登录按钮也未看到业务页时，短暂等待页面跳转/渲染。
-        now = time.time()
-        if now - last_log_at > 10:
-            last_log_at = now
-            try:
-                log(f"等待登录页或业务页渲染中，当前URL：{page.url}", log_file)
-            except Exception:
-                log("等待登录页或业务页渲染中。", log_file)
-        time.sleep(0.5)
-
-    # 超时不直接报错：可能用户仍需手动登录，后续步骤如果找不到元素会保存调试文件。
-    log("未自动检测到内网ERP登录按钮或业务页元素；如浏览器停在登录页，请手动点击内网用户ERP登录。", log_file)
-
-
 def main() -> int:
     args = parse_args()
     ensure_playwright()
     from playwright.sync_api import sync_playwright
 
-    files = get_files(args.sku_dir, args.pattern, args.only, args.limit)
+    files = get_files(args.sku_dir, args.pattern, args.only)
     args.profile_dir.mkdir(parents=True, exist_ok=True)
     args.log_file.write_text("", encoding="utf-8")
 
@@ -451,10 +386,7 @@ def main() -> int:
         with timed_step("打开后台页面", args.log_file):
             page.goto(args.url, wait_until="domcontentloaded")
 
-        with timed_step("处理内网ERP登录", args.log_file):
-            handle_inner_erp_login_if_needed(page, args.log_file, max_wait_seconds=60)
-
-        log("如果页面仍要求登录，请在打开的浏览器里完成登录；脚本会等待并继续。", args.log_file)
+        log("如果页面要求登录，请在打开的浏览器里完成登录；脚本会等待并继续。", args.log_file)
         with timed_step("进入查价工具", args.log_file):
             if visible_text_exists_anywhere(page, ["批量上传", "上传文件", "开始查询"], timeout_ms=2500):
                 log("已检测到查价工具页面元素，跳过点击查价工具。", args.log_file)
@@ -498,9 +430,10 @@ def main() -> int:
                     )
             if not exported:
                 raise RuntimeError("找不到“批量导出”按钮。")
-            with timed_step("处理导出确认（如有）", args.log_file):
+            with timed_step("处理导出确认/等待邮件任务提交", args.log_file):
                 confirm_export_if_needed(page)
-            log(f"[{index}/{len(files)}] 已点击批量导出：{file_path.name}", args.log_file)
+                time.sleep(args.wait_after_export)
+            log(f"[{index}/{len(files)}] 已点击批量导出，等待邮件发送：{file_path.name}", args.log_file)
 
             if args.pause_after_each:
                 input("已完成当前文件上传、查询和批量导出。检查页面后，按回车继续下一个文件...")

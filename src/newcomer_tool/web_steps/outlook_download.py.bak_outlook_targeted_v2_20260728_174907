@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-read", action="store_true", help="包含已读邮件；默认只处理未读邮件")
     parser.add_argument("--mark-read", action="store_true", help="处理成功后把对应邮件标记为已读")
     parser.add_argument("--expected-count", type=int, default=0, help="本批预期下载链接数量；0 表示不按数量截断")
-    parser.add_argument("--batch-window-minutes", type=int, default=10, help="只处理和最新匹配邮件时间相近的邮件，单位分钟")
+    parser.add_argument("--batch-window-minutes", type=int, default=90, help="只处理和最新匹配邮件时间相近的邮件，单位分钟")
     parser.add_argument("--open-delay", type=float, default=1.5, help="open 模式下每个链接打开间隔秒数")
     parser.add_argument("--download-timeout", type=int, default=120, help="download 模式下单个链接超时秒数")
     parser.add_argument("--limit-links", type=int, default=0, help="最多处理多少个链接；0 表示不限制。兼容旧参数，优先级低于 expected-count")
@@ -178,7 +178,6 @@ def mark_mails_read(entry_ids: list[str], log_file: Path) -> None:
     if not unique_ids:
         return
 
-    log(f"开始标记邮件为已读：{len(unique_ids)} 封。", log_file)
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as file:
         for entry_id in unique_ids:
             file.write(entry_id + "\n")
@@ -216,12 +215,9 @@ Write-Output $changed
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=15,
         )
         changed = completed.stdout.strip() or "0"
         log(f"已标记邮件为已读：{changed} 封。", log_file)
-    except subprocess.TimeoutExpired:
-        log("标记已读超时：已跳过该步骤，下载文件已完成。可稍后手动在 Outlook 标记已读。", log_file)
     except Exception as exc:
         log(f"标记已读失败：{exc}", log_file)
     finally:
@@ -230,13 +226,6 @@ Write-Output $changed
             ids_path.unlink(missing_ok=True)
         except Exception:
             pass
-
-def parse_received_time(value: str) -> datetime | None:
-    try:
-        return datetime.strptime(value, TIME_FORMAT)
-    except Exception:
-        return None
-
 
 
 def flatten_links(mails: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -260,6 +249,14 @@ def flatten_links(mails: list[dict[str, Any]]) -> list[dict[str, str]]:
             })
     rows.sort(key=lambda row: parse_received_time(row.get("received_time", "")) or datetime.min, reverse=True)
     return rows
+
+
+def parse_received_time(value: str) -> datetime | None:
+    try:
+        return datetime.strptime(value, TIME_FORMAT)
+    except Exception:
+        return None
+
 
 def filter_latest_batch(rows: list[dict[str, str]], expected_count: int, batch_window_minutes: int) -> tuple[list[dict[str, str]], str]:
     if not rows:
@@ -392,6 +389,8 @@ def main() -> int:
                 log(f"[{index}/{len(rows)}] 下载完成：{target}", args.log_file)
             except Exception as exc:
                 log(f"[{index}/{len(rows)}] 直接下载失败：{exc}。可改用 open 模式让浏览器下载。", args.log_file)
+        if args.mark_read and processed_entry_ids:
+            mark_mails_read(processed_entry_ids, args.log_file)
         log(f"直接下载完成：成功 {success}/{len(rows)} 个；目录：{args.download_dir}", args.log_file)
         return 0
 
@@ -401,6 +400,8 @@ def main() -> int:
             open_url(row["url"])
             processed_entry_ids.append(row.get("entry_id", ""))
             time.sleep(max(0.2, args.open_delay))
+        if args.mark_read and processed_entry_ids:
+            mark_mails_read(processed_entry_ids, args.log_file)
         log("已全部打开链接。若 Chrome 阻止不安全下载，请在浏览器右上角下载图标中点击“保留”。", args.log_file)
         return 0
 

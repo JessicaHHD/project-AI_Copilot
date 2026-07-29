@@ -284,7 +284,7 @@ def run_filtering(config: AppConfig) -> dict[str, Any]:
     else:
         step6 = step5
         logs.append(f"6、未执行：未提供“目前提报成功sku”名单，保留剩余{len(step6)}个记录。")
-        add_audit(audit, "目前提报成功SKU名单", "预警", "未提供目前提报成功SKU名单 current_success_skus_file，删除目前提报成功SKU步骤未执行")
+        add_audit(audit, "目前提报成功SKU名单", "预警", "未提供名单，步骤6未执行")
 
     submitted_file = str(config.get("submitted_skus_file", "") or "").strip()
     if submitted_file:
@@ -294,7 +294,7 @@ def run_filtering(config: AppConfig) -> dict[str, Any]:
     else:
         step8 = step6
         logs.append(f"7、未执行：未提供“已经提报过sku”名单，保留剩余{len(step8)}个记录。")
-        add_audit(audit, "已经提报SKU名单", "预警", "未提供已经提报过SKU名单 submitted_skus_file，剔除已经提报过SKU步骤未执行")
+        add_audit(audit, "已经提报SKU名单", "预警", "未提供名单，步骤8未执行；后续可在 config.yaml 填写 submitted_skus_file")
 
     excluded_erps = set(config.get("exclude_erp_accounts", []))
     removed_erp = [row for row in step8 if str(row.get(erp_col, "")).strip() in excluded_erps]

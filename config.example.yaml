@@ -1,10 +1,8 @@
-﻿# 新人价自动化工具配置
-# 路径可直接复制 Windows 路径；不需要加引号也可以。
-
+# 新人价自动化工具配置
 source_file: D:\your_path\source.csv
 output_root: D:\your_path\新人价自动化工具\data\output
+date_tag: 20260727
 
-# 字段配置
 sku_column: SKU(含影)
 product_name_column: sku名称
 mapping_column: 1自营3POP_映射
@@ -13,7 +11,6 @@ department_column: 1级部门名称（类目运营）
 category2_column: 商品二级分类名称
 erp_column: 销售员ERP帐号
 
-# 筛选规则
 keep_mapping_values:
   - 自营
 keep_pop_shop_keyword: 京喜
@@ -37,30 +34,42 @@ metric_sum_columns:
   - 去重计数_销售订单编号
   - 求和_销售数量
 
-# 可选补充名单；留空表示跳过对应步骤
 current_success_skus_file:
 submitted_skus_file:
-price_column:
-price_threshold: 200
-
-# 输出控制
+strict_field_validation: true
 export_csv: false
 export_removed_details: false
 debug_mode: false
 
-# 查价前 SKU 拆分
 split_base_name: 8月第一批查价前sku
 split_chunk_size: 5000
-split_source_sheet: 筛选结果
-split_source_column: SKU(含影)
+split_source_sheet: 汇总
+split_source_column: sku
 
-# 网页实验功能
 backend_url: https://yx.jd.com/user-operate#/customize/findLowestActivity?pathkey=goodspool
-backend_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\browser_profiles\backend
+backend_profile_dir: D:\your_path\新人价自动化工具\browser_profiles\backend
 backend_wait_after_query: 45
 backend_wait_after_export: 10
 backend_only_file: 8月第一批查价前sku_PART01.xlsx
 outlook_url: https://outlook.office.com/mail/
-outlook_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\browser_profiles\outlook
+outlook_profile_dir: D:\your_path\新人价自动化工具\browser_profiles\outlook
 outlook_search: 查价 新人价
 outlook_max_mails: 20
+
+# 最终整合模块；为空时自动使用最新筛品结果和查价结果导出目录
+final_filter_file:
+final_price_dir:
+final_price_pattern: *.xlsx
+final_price_sku_column: skuId
+final_price_value_column: 100天最低价
+final_price_date_label:
+
+# 新人价提报安全测试模块；默认 dry_run 不上传不提交
+registration_input_dir: D:\your_path\新人价自动化工具\data\input\提报确认表
+registration_submit_dir: D:\your_path\新人价自动化工具\data\output\提报文件
+registration_base_name: 新人价提报
+registration_chunk_size: 5000
+registration_submit_pattern: 新人价提报_PART*.xlsx
+registration_url: https://yx.jd.com/user-operate#/customize/newCanSignUpActivity?pathkey=goodspool
+registration_profile_dir: D:\your_path\新人价自动化工具\browser_profiles\backend
+registration_month_threshold_day: 25
