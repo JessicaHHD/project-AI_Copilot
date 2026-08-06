@@ -17,11 +17,25 @@ browser_profiles/
 # 本地真实配置，不提交
 config.yaml
 
+# 测试工作区：测试数据、测试输出、测试日志、测试浏览器缓存
+test_workspace/
+
+# 本地笔记/画图工作区，不提交
+.obsidian/
+Excalidraw/
+
+# 文档历史版本/过程备份，默认不提交
+docs_versions/
+
 # 业务表格和导出结果，默认不提交
 *.xlsx
 *.xls
 *.csv
 *.zip
+
+# 临时日志和调试文件
+*.log
+debug_backend/
 
 # 系统文件
 .DS_Store

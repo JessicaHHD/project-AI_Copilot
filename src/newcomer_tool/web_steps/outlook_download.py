@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--open-delay", type=float, default=1.5, help="open 模式下每个链接打开间隔秒数")
     parser.add_argument("--download-timeout", type=int, default=120, help="download 模式下单个链接超时秒数")
     parser.add_argument("--limit-links", type=int, default=0, help="最多处理多少个链接；0 表示不限制。兼容旧参数，优先级低于 expected-count")
+    parser.add_argument("--download-list-file", type=Path, help="download 模式下写出本次成功下载文件清单；一行一个完整路径")
     return parser.parse_args()
 
 
@@ -383,15 +384,21 @@ def main() -> int:
     processed_entry_ids: list[str] = []
     if args.mode == "download":
         success = 0
+        downloaded_files: list[Path] = []
         for index, row in enumerate(rows, start=1):
             try:
                 log(f"[{index}/{len(rows)}] 开始直接下载。", args.log_file)
                 target = download_url(row["url"], args.download_dir, args.download_timeout)
                 success += 1
+                downloaded_files.append(target)
                 processed_entry_ids.append(row.get("entry_id", ""))
                 log(f"[{index}/{len(rows)}] 下载完成：{target}", args.log_file)
             except Exception as exc:
                 log(f"[{index}/{len(rows)}] 直接下载失败：{exc}。可改用 open 模式让浏览器下载。", args.log_file)
+        if args.download_list_file:
+            args.download_list_file.parent.mkdir(parents=True, exist_ok=True)
+            args.download_list_file.write_text("\n".join(str(path.resolve()) for path in downloaded_files) + ("\n" if downloaded_files else ""), encoding="utf-8")
+            log(f"本次下载文件清单：{args.download_list_file}", args.log_file)
         log(f"直接下载完成：成功 {success}/{len(rows)} 个；目录：{args.download_dir}", args.log_file)
         return 0
 

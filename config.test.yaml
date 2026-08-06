@@ -1,15 +1,16 @@
-# 新人价自动化工具配置
-batch_name: 8月第1批提报
+# 新人价自动化工具测试配置：所有输入/输出/日志/浏览器缓存均写入 test_workspace
+batch_name: 测试批次_8月第1批提报
 batch_date:
-source_file: D:\your_path\source.csv
+source_file:
 source_auto_detect: true
-source_auto_dir: D:\your_downloads
+source_auto_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\data\input\大盘订单源表
 source_auto_patterns:
   - "*近30天动销大于200*.csv"
   - "*近30天动销大于200*.xlsx"
   - "*近30天动销大于200*.xlsm"
-output_root: D:\your_path\新人价自动化工具\data\output
-date_tag: 20260727
+output_root: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\data\output
+log_root: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\logs
+date_tag: test_20260731
 
 sku_column: SKU(含影)
 product_name_column: sku名称
@@ -56,27 +57,31 @@ resubmit_exit_keywords:
   - 不提报
   - 取消
   - 放弃
+# 复提二次查价价格复核：测试入口同样启用，输出留在 test_workspace
+resubmit_price_review_enabled: true
+resubmit_price_diff_abs_threshold: 10
+resubmit_price_diff_rate_threshold: 0.2
+resubmit_price_review_detail_sheet: true
 strict_field_validation: true
 export_csv: false
 export_removed_details: false
 debug_mode: false
 
-split_base_name: 8月第一批查价前sku
+split_base_name: 测试批次_查价前sku
 split_chunk_size: 5000
 split_source_sheet: 汇总
 split_source_column: sku
 
 backend_url: https://yx.jd.com/user-operate#/customize/findLowestActivity?pathkey=goodspool
-backend_profile_dir: D:\your_path\新人价自动化工具\browser_profiles\backend
+backend_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\browser_profiles\backend
 backend_wait_after_query: 45
 backend_wait_after_export: 10
-backend_only_file: 8月第一批查价前sku_PART01.xlsx
+backend_only_file: 测试批次_查价前sku_PART01.xlsx
 outlook_url: https://outlook.office.com/mail/
-outlook_profile_dir: D:\your_path\新人价自动化工具\browser_profiles\outlook
+outlook_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\browser_profiles\outlook
 outlook_search: 查价 新人价
 outlook_max_mails: 20
 
-# 最终整合模块；为空时自动使用最新筛品结果和查价结果导出目录
 final_filter_file:
 final_price_dir:
 final_price_pattern: *.xlsx
@@ -84,23 +89,20 @@ final_price_sku_column: skuId
 final_price_value_column: 价格
 final_price_date_label:
 
-# 新人价提报安全测试模块；默认 dry_run 不上传不提交
-registration_input_dir: D:\your_path\新人价自动化工具\data\input\提报确认表
-registration_submit_dir: D:\your_path\新人价自动化工具\data\output\提报文件
+registration_input_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\data\input\提报确认表
+registration_submit_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\data\output\提报文件
 registration_base_name: 新人价提报
 registration_chunk_size: 5000
 registration_submit_pattern: 新人价提报_PART*.xlsx
 registration_url: https://yx.jd.com/user-operate#/customize/newCanSignUpActivity?pathkey=goodspool
-registration_profile_dir: D:\your_path\新人价自动化工具\browser_profiles\backend
+registration_profile_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\browser_profiles\backend
 registration_month_threshold_day: 25
 
-# 提报/审核情况后台导出模块
-registration_status_export_dir: D:\hansiying.1\Desktop\新人价自动化工具\data\output\提报情况导出
+registration_status_export_dir: D:\hansiying.1\Desktop\新人价自动化工具\test_workspace\data\output\提报情况导出
 registration_status_mail_subject: 商品下载完成通知
 registration_status_mail_sender: 增长权益
 registration_status_mail_timeout: 1200
 
-# 提报情况整理回填模块；为空时自动取最新文件
 registration_status_file:
 registration_status_final_file:
 registration_status_confirm_file:

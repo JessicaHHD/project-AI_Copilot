@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--pattern", default="8月第一批查价前sku_PART*.xlsx", help="待上传文件匹配规则")
     parser.add_argument("--only", help="只处理某一个文件名，例如：8月第一批查价前sku_PART01.xlsx")
+    parser.add_argument("--file-list", type=Path, help="只处理清单中的文件；文件内容为一行一个 Excel 完整路径")
     parser.add_argument("--limit", default=0, type=int, help="只处理前 N 个匹配文件；0 表示不限制")
     parser.add_argument(
         "--profile-dir",
@@ -48,13 +49,17 @@ def ensure_playwright() -> None:
         raise RuntimeError("缺少 playwright。请先运行：python -m pip install playwright && python -m playwright install chromium") from exc
 
 
-def get_files(sku_dir: Path, pattern: str, only: str | None, limit: int = 0) -> list[Path]:
-    files = [sku_dir / only] if only else sorted(sku_dir.glob(pattern))
+def get_files(sku_dir: Path, pattern: str, only: str | None, limit: int = 0, file_list: Path | None = None) -> list[Path]:
+    if file_list:
+        files = [Path(line.strip().strip('"')) for line in file_list.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
+    else:
+        files = [sku_dir / only] if only else sorted(sku_dir.glob(pattern))
     files = [path for path in files if path.is_file()]
     if limit and limit > 0 and not only:
         files = files[:limit]
     if not files:
-        raise FileNotFoundError(f"未找到待上传文件：{sku_dir / pattern}")
+        target = file_list if file_list else sku_dir / pattern
+        raise FileNotFoundError(f"未找到待上传文件：{target}")
     return files
 
 
@@ -131,7 +136,7 @@ def visible_text_exists_anywhere(page, texts: list[str], timeout_ms: int = 1000)
 
 def fast_click_text_anywhere(page, texts: list[str], timeout_ms: int = 1200, clickable_only: bool = True) -> bool:
     deadline = time.time() + timeout_ms / 1000
-    script = """
+    script = r"""
         ({texts, clickableOnly}) => {
             const isVisible = (el) => {
                 const style = window.getComputedStyle(el);
@@ -223,6 +228,219 @@ def wait_upload_area_ready(page, timeout_ms: int = 3000) -> bool:
         time.sleep(0.1)
     return False
 
+
+def select_lowest_price_query(page, debug_dir: Path, log_file: Path) -> None:
+    # 新版页面进入查价工具后，必须先切到“近N天最低价查询”tab，再选择批量上传。
+    # 注意：默认“100天最低价”页也有“批量上传”，不能仅凭批量上传可见就跳过切 tab。
+    exact_tab_texts = ["近N天最低价查询", "近 N 天最低价查询"]
+    fuzzy_tab_texts = [*exact_tab_texts, "近N天最低价", "近 N 天最低价"]
+    deadline = time.time() + 90
+    last_log_at = 0.0
+    seen_target_tab = False
+    clicked_target_tab = False
+
+    def target_tab_visible() -> bool:
+        return visible_text_exists_anywhere(page, fuzzy_tab_texts, timeout_ms=700)
+
+    def click_target_tab() -> bool:
+        # 优先用 JS 按可见文本点击 tab/button，避免点击到说明文字。
+        script = r"""
+            (texts) => {
+                const isVisible = (el) => {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+                };
+                const norm = (el) => (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                const clickableSelector = [
+                    'button', '[role=tab]', '[role=button]', 'a', 'label',
+                    '.ant-tabs-tab', '.ant-radio-button-wrapper', '.ant-radio-wrapper',
+                    '.ant-btn', '.el-tabs__item', '.el-radio-button', '.el-radio'
+                ].join(',');
+                const likelyTabClass = (el) => /tab|radio|btn|button|item|nav|menu|price|lowest|query/i.test(String(el.className || ''));
+                const clickableCandidates = (node, text) => {
+                    const candidates = [];
+                    const closestClickable = node.closest(clickableSelector);
+                    if (closestClickable) candidates.push(closestClickable);
+                    candidates.push(node);
+                    let current = node.parentElement;
+                    while (current && current !== document.body && candidates.length < 10) {
+                        const currentText = norm(current);
+                        const style = window.getComputedStyle(current);
+                        if (
+                            currentText.includes(text) &&
+                            currentText.length <= 120 &&
+                            (style.cursor === 'pointer' || likelyTabClass(current) || current.getAttribute('role'))
+                        ) {
+                            candidates.push(current);
+                        }
+                        current = current.parentElement;
+                    }
+                    return [...new Set(candidates)].filter(Boolean);
+                };
+                const selectors = [
+                    clickableSelector, 'span', 'div'
+                ].join(',');
+                const nodes = Array.from(document.querySelectorAll(selectors)).filter(isVisible);
+                for (const text of texts) {
+                    const matches = [
+                        ...nodes.filter(el => norm(el) === text),
+                        ...nodes.filter(el => norm(el) !== text && norm(el).includes(text))
+                    ];
+                    for (const node of matches) {
+                        for (const clickable of clickableCandidates(node, text)) {
+                            try {
+                                clickable.scrollIntoView({block: 'center', inline: 'center'});
+                                clickable.click();
+                                return true;
+                            } catch (error) {
+                                continue;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+        """
+        for target in page_and_frames(page):
+            try:
+                if target.evaluate(script, exact_tab_texts):
+                    return True
+            except Exception:
+                continue
+
+        for target in page_and_frames(page):
+            try:
+                if target.evaluate(script, fuzzy_tab_texts):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def target_tab_confirmed() -> bool:
+        script = r"""
+            (texts) => {
+                const isVisible = (el) => {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+                };
+                const norm = (el) => (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+                const selectedClasses = [
+                    'active', 'selected', 'checked', 'current',
+                    'ant-tabs-tab-active', 'ant-radio-button-wrapper-checked', 'ant-radio-wrapper-checked',
+                    'el-tabs__item is-active', 'is-active', 'is-checked'
+                ];
+                const selectedAttrs = (el) =>
+                    el.getAttribute('aria-selected') === 'true' ||
+                    el.getAttribute('aria-checked') === 'true' ||
+                    el.getAttribute('aria-current') === 'true';
+                const classSelected = (el) => {
+                    const className = String(el.className || '');
+                    return selectedClasses.some(item => className.includes(item));
+                };
+                const rgbValues = (value) => {
+                    const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                    return match ? match.slice(1, 4).map(Number) : null;
+                };
+                const looksActive = (el) => {
+                    const style = window.getComputedStyle(el);
+                    const colors = [style.color, style.backgroundColor, style.borderColor];
+                    return colors.some(value => {
+                        const rgb = rgbValues(value);
+                        if (!rgb) return false;
+                        const [red, green, blue] = rgb;
+                        return blue >= 180 && blue > red + 40 && blue > green + 20;
+                    });
+                };
+                const selector = [
+                    'button', '[role=tab]', '[role=button]', 'a', 'label',
+                    '.ant-tabs-tab', '.ant-radio-button-wrapper', '.ant-radio-wrapper',
+                    '.ant-btn', '.el-tabs__item', '.el-radio-button', '.el-radio', 'span', 'div'
+                ].join(',');
+                const clickableSelector = [
+                    'button', '[role=tab]', '[role=button]', 'a', 'label',
+                    '.ant-tabs-tab', '.ant-radio-button-wrapper', '.ant-radio-wrapper',
+                    '.ant-btn', '.el-tabs__item', '.el-radio-button', '.el-radio'
+                ].join(',');
+                const nodes = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+                for (const text of texts) {
+                    const matches = [
+                        ...nodes.filter(el => norm(el) === text),
+                        ...nodes.filter(el => norm(el) !== text && norm(el).includes(text))
+                    ];
+                    for (const node of matches) {
+                        const candidates = [];
+                        let current = node;
+                        while (current && current !== document.body && candidates.length < 8) {
+                            candidates.push(current);
+                            current = current.parentElement;
+                        }
+                        const clickable = node.closest(clickableSelector);
+                        if (clickable) candidates.push(clickable);
+                        for (const candidate of candidates) {
+                            if (!candidate) continue;
+                            if (selectedAttrs(candidate) || classSelected(candidate) || looksActive(candidate)) return true;
+                            const checkedInput = candidate.querySelector && candidate.querySelector('input:checked');
+                            if (checkedInput) return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        """
+        deadline_confirm = time.time() + 3
+        while time.time() < deadline_confirm:
+            for target in page_and_frames(page):
+                try:
+                    if target.evaluate(script, exact_tab_texts):
+                        return True
+                except Exception:
+                    continue
+            time.sleep(0.3)
+        return False
+
+    while time.time() < deadline:
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=1000)
+        except Exception:
+            pass
+
+        if target_tab_visible():
+            seen_target_tab = True
+            if not click_target_tab():
+                time.sleep(0.5)
+                continue
+
+            if not clicked_target_tab:
+                log("已点击“近N天最低价查询”入口，等待页面确认。", log_file)
+            clicked_target_tab = True
+            try:
+                page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception:
+                pass
+            if target_tab_confirmed():
+                log("已确认进入“近N天最低价查询”页面。", log_file)
+                return
+            time.sleep(0.5)
+
+        now = time.time()
+        if now - last_log_at > 10:
+            last_log_at = now
+            try:
+                log(f"等待查价页面渲染/目标tab出现中，当前URL：{page.url}", log_file)
+            except Exception:
+                log("等待查价页面渲染/目标tab出现中。", log_file)
+        time.sleep(0.7)
+
+    if clicked_target_tab:
+        save_debug_snapshot(page, debug_dir, "lowest_price_query_tab_not_confirmed")
+        raise RuntimeError(f"已点击“近N天最低价查询”，但无法确认已进入对应页面。已保存调试文件到：{debug_dir}")
+    if seen_target_tab:
+        save_debug_snapshot(page, debug_dir, "lowest_price_query_tab_click_failed")
+        raise RuntimeError(f"已找到“近N天最低价查询”，但点击失败。已保存调试文件到：{debug_dir}")
+    save_debug_snapshot(page, debug_dir, "lowest_price_query_tab_not_found")
+    raise RuntimeError(f"未找到“近N天最低价查询”。页面可能仍在加载或后台未渲染入口；已保存调试文件到：{debug_dir}")
 
 def select_batch_upload(page, debug_dir: Path) -> None:
     # 测速结果：主定位 js visible text 批量上传；兜底 .ant-radio-wrapper / label。
@@ -372,7 +590,7 @@ def handle_inner_erp_login_if_needed(page, log_file: Path, max_wait_seconds: int
     """等待登录页/业务页稳定：看到“内网用户ERP登录”就点击，看到业务页元素就继续。"""
     deadline = time.time() + max_wait_seconds
     login_texts = ["内网用户ERP登录", "内网用户erp登录", "内网用户ERP登陆", "内网用户登录"]
-    business_texts = ["查价工具", "批量上传", "上传文件", "开始查询"]
+    business_texts = ["查价工具", "批量上传", "上传文件", "开始查询", "运营工作台", "商品价格力", "新人价"]
     clicked_login = False
     last_log_at = 0.0
 
@@ -434,9 +652,11 @@ def main() -> int:
     ensure_playwright()
     from playwright.sync_api import sync_playwright
 
-    files = get_files(args.sku_dir, args.pattern, args.only, args.limit)
+    files = get_files(args.sku_dir, args.pattern, args.only, args.limit, args.file_list)
     args.profile_dir.mkdir(parents=True, exist_ok=True)
     args.log_file.write_text("", encoding="utf-8")
+    log(f"文件来源：{'file-list' if args.file_list else 'directory-pattern'}", args.log_file)
+    log(f"文件数量：{len(files)}；文件：{', '.join(path.name for path in files)}", args.log_file)
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
@@ -462,6 +682,9 @@ def main() -> int:
                 clicked_tool = fast_click_text_anywhere(page, ["查价工具"], timeout_ms=1500, clickable_only=False)
                 if not clicked_tool:
                     click_first_available(page, [("text", "查价工具")], timeout=5000)
+        with timed_step("选择近N天最低价查询", args.log_file):
+            select_lowest_price_query(page, args.log_file.parent / "debug_backend", args.log_file)
+
         with timed_step("选择批量上传", args.log_file):
             select_batch_upload(page, args.log_file.parent / "debug_backend")
 

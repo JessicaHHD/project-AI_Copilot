@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--submit-dir", type=Path, required=True, help="提报 PART 文件目录")
     parser.add_argument("--pattern", default="新人价提报_PART*.xlsx", help="提报 PART 文件匹配规则")
     parser.add_argument("--only", help="只处理某一个文件名")
+    parser.add_argument("--file-list", type=Path, help="只处理清单中的文件；文件内容为一行一个 Excel 完整路径")
     parser.add_argument("--start-index", default=1, type=int, help="从匹配文件列表的第 N 个文件开始处理；默认 1")
     parser.add_argument("--limit", default=1, type=int, help="从起始文件开始只处理 N 个文件；默认 1；0 表示不限制")
     parser.add_argument(
@@ -934,7 +935,7 @@ def main() -> int:
     if args.mode == "submit" and args.confirm_submit != "确认提报":
         raise RuntimeError("真实提交模式必须传入 --confirm-submit 确认提报")
     ensure_playwright()
-    all_files = get_files(args.submit_dir, args.pattern, args.only, 0)
+    all_files = get_files(args.submit_dir, args.pattern, args.only, 0, args.file_list)
     if args.only:
         files = all_files
     else:
@@ -952,6 +953,7 @@ def main() -> int:
     month_labels = target_month_labels(args.month_threshold_day)
 
     log(f"运行模式：{args.mode}", args.log_file)
+    log(f"文件来源：{'file-list' if args.file_list else 'directory-pattern'}", args.log_file)
     log(f"起始文件序号：{args.start_index if not args.only else '指定单文件'}", args.log_file)
     log(f"文件数量：{len(files)}；文件：{', '.join(path.name for path in files)}", args.log_file)
     log(f"月份选择优先级：{'、'.join(month_labels)}", args.log_file)

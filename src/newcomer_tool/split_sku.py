@@ -5,6 +5,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
+from .batch import archive_matching_files
 from .config import AppConfig
 
 
@@ -65,6 +66,11 @@ def run_split(config: AppConfig, source: Path | None = None) -> dict[str, Any]:
     chunk_size = int(config.get("split_chunk_size", 5000))
     if chunk_size <= 0:
         raise ValueError("split_chunk_size 必须大于 0")
+    archive_result = archive_matching_files(
+        output_dir,
+        [f"{base_name}.xlsx", f"{base_name}_PART*.xlsx"],
+        "split_sku",
+    )
     summary_path = output_dir / f"{base_name}.xlsx"
     save_sku_file(summary_path, "汇总", skus)
     part_paths = []
@@ -73,4 +79,4 @@ def run_split(config: AppConfig, source: Path | None = None) -> dict[str, Any]:
         part_path = output_dir / f"{base_name}_PART{part_no:02d}.xlsx"
         save_sku_file(part_path, f"PART{part_no:02d}", skus[start:start + chunk_size])
         part_paths.append(part_path)
-    return {"source": source_path, "summary": summary_path, "parts": part_paths, "sku_count": len(skus)}
+    return {"source": source_path, "summary": summary_path, "parts": part_paths, "sku_count": len(skus), **archive_result}
