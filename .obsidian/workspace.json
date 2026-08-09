@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "项目计划.md",
+                "file": "docs/product_vision.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "项目计划"
+              "title": "product_vision"
             }
           }
         ],
@@ -204,6 +204,13 @@
   },
   "active": "6e01f22a48db2e1d",
   "lastOpenFiles": [
+    "docs/mvp_case_study.md",
+    "docs/full_prd.md",
+    "docs_versions/20260801_当前进度/PROJECT_STATUS.md",
+    "AGENTS.md",
+    "docs/product_vision.md",
+    "docs/_patch_test.tmp",
+    "项目计划.md",
     "test_workspace/browser_profiles/backend/Default/SharedStorage-wal",
     "test_workspace/browser_profiles/backend/BrowserMetrics-spare.pma",
     "test_workspace/browser_profiles/backend/Default/Network/17017225-6de6-4865-8e02-ec7b0d934e93.tmp",
@@ -213,8 +220,6 @@
     "test_workspace/browser_profiles/backend/8e5786b9-7428-4427-988c-b7c3bc1ab484.tmp",
     "test_workspace/browser_profiles/backend/Default/DIPS-wal",
     "test_workspace/browser_profiles/backend/Default/blob_storage/0e7a6e8f-0e70-4ca1-8fc4-0e86f26b20e0",
-    "test_workspace/browser_profiles/backend/Default/Cache/Cache_Data/f_000058",
-    "test_workspace/browser_profiles/backend/Default/Code Cache/js/26c600643e56b13b_0",
     "docs/react_gui_startup.md",
     "gui_frontend/node_modules/@tailwindcss/oxide-win32-x64-msvc/README.md",
     "gui_frontend/node_modules/vite/LICENSE.md",
@@ -226,11 +231,9 @@
     "gui_frontend/plans/attachment-src-imports-pasted-text-past-ancient-moonbeam.md",
     "gui_frontend/CLAUDE.md",
     "gui_frontend/AGENTS.md",
-    "AGENTS.md",
     "用户旅程.md",
     "PROJECT_STATUS.md",
     "新人价自动化工具现有脚本能力报告.md",
-    "项目计划.md",
     "Excalidraw/Drawing 2026-08-06 14.30.26.excalidraw.md",
     "test_workspace/logs/debug_registration_status_export/status_download_clicked.png",
     "test_workspace/logs/debug_registration_status_export/status_detail_ready.png",
