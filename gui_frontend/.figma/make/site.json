@@ -1,0 +1,10 @@
+{
+  "description": "Streamline project planning and collaboration with an intuitive interface designed for teams to create and manage prototypes efficiently.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

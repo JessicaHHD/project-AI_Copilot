@@ -36,6 +36,7 @@ docs_versions/
 # 临时日志和调试文件
 *.log
 debug_backend/
+.codex_runtime/
 
 # 系统文件
 .DS_Store

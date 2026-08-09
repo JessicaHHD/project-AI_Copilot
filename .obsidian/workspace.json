@@ -13,15 +13,30 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "PROJECT_STATUS.md",
+                "file": "用户旅程.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "PROJECT_STATUS"
+              "title": "用户旅程"
+            }
+          },
+          {
+            "id": "6e01f22a48db2e1d",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "项目计划.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "项目计划"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -41,7 +56,9 @@
               "type": "file-explorer",
               "state": {
                 "sortOrder": "alphabetical",
-                "autoReveal": false
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
               },
               "icon": "lucide-folder-closed",
               "title": "文件列表"
@@ -78,7 +95,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 200
   },
   "right": {
     "id": "be3280c55c3c2f4d",
@@ -180,9 +197,45 @@
       "daily-notes:打开/创建今天的日记": false,
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
-      "bases:新建数据库": false
+      "bases:新建数据库": false,
+      "obsidian42-brat:BRAT": false,
+      "obsidian-excalidraw-plugin:新建绘图文件": false
     }
   },
-  "active": "5ea110bd96257a7e",
-  "lastOpenFiles": []
+  "active": "6e01f22a48db2e1d",
+  "lastOpenFiles": [
+    "test_workspace/browser_profiles/backend/Default/SharedStorage-wal",
+    "test_workspace/browser_profiles/backend/BrowserMetrics-spare.pma",
+    "test_workspace/browser_profiles/backend/Default/Network/17017225-6de6-4865-8e02-ec7b0d934e93.tmp",
+    "test_workspace/browser_profiles/backend/Default/a7a89628-4ebb-47c7-bb4d-d9a26d5b3eeb.tmp",
+    "test_workspace/browser_profiles/backend/Default/07600f1d-5650-4c5a-a547-abd7dc9ed426.tmp",
+    "test_workspace/browser_profiles/backend/Default/bf2158d4-35f5-415d-b3da-32fa441a30d8.tmp",
+    "test_workspace/browser_profiles/backend/8e5786b9-7428-4427-988c-b7c3bc1ab484.tmp",
+    "test_workspace/browser_profiles/backend/Default/DIPS-wal",
+    "test_workspace/browser_profiles/backend/Default/blob_storage/0e7a6e8f-0e70-4ca1-8fc4-0e86f26b20e0",
+    "test_workspace/browser_profiles/backend/Default/Cache/Cache_Data/f_000058",
+    "test_workspace/browser_profiles/backend/Default/Code Cache/js/26c600643e56b13b_0",
+    "docs/react_gui_startup.md",
+    "gui_frontend/node_modules/@tailwindcss/oxide-win32-x64-msvc/README.md",
+    "gui_frontend/node_modules/vite/LICENSE.md",
+    "gui_frontend/node_modules/enhanced-resolve/README.md",
+    "gui_frontend/node_modules/postcss/README.md",
+    "gui_frontend/node_modules/react/README.md",
+    "gui_frontend/node_modules/picomatch/README.md",
+    "gui_frontend/node_modules/@rolldown/pluginutils/README.md",
+    "gui_frontend/plans/attachment-src-imports-pasted-text-past-ancient-moonbeam.md",
+    "gui_frontend/CLAUDE.md",
+    "gui_frontend/AGENTS.md",
+    "AGENTS.md",
+    "用户旅程.md",
+    "PROJECT_STATUS.md",
+    "新人价自动化工具现有脚本能力报告.md",
+    "项目计划.md",
+    "Excalidraw/Drawing 2026-08-06 14.30.26.excalidraw.md",
+    "test_workspace/logs/debug_registration_status_export/status_download_clicked.png",
+    "test_workspace/logs/debug_registration_status_export/status_detail_ready.png",
+    "test_workspace/logs/debug_registration_submit/file_selected_测试批次_8月第1批提报_提报sku_2026080.png",
+    "test_workspace/logs/debug_registration_submit/ready_to_upload_测试批次_8月第1批提报_提报sku_20260.png",
+    "test_workspace/logs/debug_backend/lowest_price_query_tab_click_failed.png"
+  ]
 }
