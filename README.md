@@ -81,3 +81,42 @@ config.test.yaml
 - 支持复提优先级和掉池预警
 - 将只读接口抽象为服务化接口
 - 探索 AI Copilot 自然语言查询与运营建议
+
+## 7.仓库结构说明
+本仓库保留了项目从单脚本自动化到 Workflow MVP 的迭代过程，因此可以看到部分历史脚本、备份文件和 legacy 目录。它们主要用于记录开发演进，不代表当前推荐使用入口。
+###6.1 当前 MVP 主代码
+当前 MVP 主代码位于：
+```text
+src/newcomer_tool/
+```
+核心模块包括：
+- main.py：CLI 主菜单与工作流入口
+- filtering.py：新人价筛品与复提候选筛选
+- split_sku.py：查价 SKU 提取与拆分
+- final_pricing.py：查价结果整合与新人价计算
+- registration_prepare.py：业务确认后生成提报文件
+- registration_status_merge.py：提报 / 审核结果整理与回填
+- failed_sku_rework.py：提报失败 SKU 返工查价与重新提报流程
+- gui_mvp.py / gui_api.py / gui_readers.py：批次看板与只读数据接口
+
+### 6.2 当前推荐启动入口
+```text
+run.bat              # 启动 CLI 工作流
+run_test.bat         # 启动隔离测试环境
+run_gui.bat          # 启动 Streamlit GUI MVP
+run_workbench.bat    # 启动 React 工作台原型
+```
+其中，CLI 工作流以 run.bat 为主，GUI / React 工作台用于展示批次状态、关键文件和日志入口。
+### 6.3 文档与历史文件说明
+```text
+docs/             # 产品规划、PRD、MVP case study 等说明文档
+scripts_legacy/   # 历史脚本归档
+*.bak_*           # 开发过程中的阶段备份
+```
+其中：
+README.md：当前作品集版项目说明
+docs/product_vision.md：产品愿景与后续规划
+docs/mvp_case_study.md：MVP 案例与产品化说明
+docs/full_prd.md：较完整的 PRD 草稿
+PROJECT_STATUS.md：开发过程中的阶段记录，仅作为项目过程参考
+当前 Demo 请以 README、src/newcomer_tool/ 和 Notion 展示页为准。
